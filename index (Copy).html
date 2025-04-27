@@ -1,0 +1,72 @@
+      
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown BibTeX Processor (WASM)</title>
+    <style>
+        body { font-family: sans-serif; display: flex; gap: 20px; padding: 15px; }
+        textarea { width: 45%; height: 400px; font-family: monospace; }
+        pre { white-space: pre-wrap; word-wrap: break-word; border: 1px solid #ccc; padding: 10px; background-color: #f8f8f8; }
+        #output-area { width: 100%; }
+        button { padding: 10px 15px; cursor: pointer; }
+        h3 { margin-top: 15px; margin-bottom: 5px;}
+    </style>
+</head>
+<body>
+    <div>
+        <h3>Input Markdown</h3>
+        <textarea id="markdown-input">
+This is a test document.
+We reference @Solovay12 for decidability.
+Another reference might be @NonExistent99.
+We can also cite @Smith20 for testing purposes.
+Here is @Solovay12 again.
+        </textarea>
+    </div>
+    <div>
+        <h3>Input BibTeX</h3>
+        <textarea id="bibtex-input">
+@Article{Solovay12,
+  author  = {Robert M. Solovay and R. D. Arthan and John Harrison},
+  title   = {Some new results on decidability for elementary algebra and geometry},
+  journal = {Annals of Pure and Applied Logic},
+  year    = {2012},
+  volume  = {163},
+  number  = {12},
+  pages   = {1765--1802},
+  month   = {December},
+  doi     = {10.1016/j.apal.2011.09.025},
+  url     = {http://arxiv.org/abs/0904.3482v3}
+}
+
+@Misc{Smith20,
+    author = {John Smith},
+    title = {A Fictional Work},
+    year = {2020},
+    howpublished = {Online Blog Post},
+}
+
+@Misc{UnusedEntry05,
+    author = {Jane Doe},
+    title = {An Unrelated Paper},
+    year = {2005}
+}
+        </textarea>
+    </div>
+    <div id="controls">
+         <button id="process-button">Process Citations</button>
+         <div id="output-area">
+            <h3>Processed Markdown</h3>
+            <pre id="output-markdown">...</pre>
+            <h3>Generated Bibliography (bibliography.md)</h3>
+            <pre id="output-bibliography">...</pre>
+         </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
+
+      

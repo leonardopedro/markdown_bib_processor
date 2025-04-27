@@ -1,0 +1,25 @@
+[package]
+name = "markdown_bib_processor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+regex = "1"
+nom-bibtex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+# Correctly enable the 'console' feature for web-sys
+web-sys = { version = "0.3", features = ["console"] }
+linked-hash-map = "0.5"
+levenshtein = "1.0"
+
+[dependencies.console_error_panic_hook]
+version = "0.1.7"
+optional = true
+
+[features]
+# Note: 'web-sys' is NOT listed as a feature here, it's a direct dependency
+default = ["console_error_panic_hook"]

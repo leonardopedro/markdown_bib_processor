@@ -1,0 +1,216 @@
+      
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::JsValue;
+use regex::{Regex, Captures};
+use nom_bibtex::{Bibtex, Bibliography};
+use std::collections::{HashMap, HashSet};
+
+#[cfg(feature = "console_error_panic_hook")]
+extern crate console_error_panic_hook;
+
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+        #[cfg(not(target_arch = "wasm32"))]
+        println!( $( $t )* );
+    }
+}
+
+// --- Helper Functions ---
+
+fn get_first_author_last_name(author_string: &str) -> Option<String> {
+    let first_author_part = author_string.split(" and ").next()?.trim();
+    if let Some((last, _)) = first_author_part.split_once(',') {
+        return Some(last.trim().to_lowercase());
+    }
+    first_author_part.split_whitespace().last().map(|s| s.trim().to_lowercase())
+}
+
+fn get_year_yy(year_string: &str) -> Option<String> {
+    let trimmed_year = year_string.trim();
+    if trimmed_year.len() >= 2 {
+        Some(trimmed_year.chars().skip(trimmed_year.len() - 2).collect())
+    } else { None }
+}
+
+fn suffix_to_index(suffix: &str) -> usize {
+    if suffix.is_empty() { 0 }
+    else { (suffix.chars().next().unwrap_or('a') as u32).saturating_sub('a' as u32) as usize }
+}
+
+fn get_entry_title_for_sort(entry: &Bibliography) -> String {
+    entry.tags().iter()
+        .find(|(k, _v)| k.eq_ignore_ascii_case("title"))
+        .map(|(_k, v)| v.trim_matches(|c| c == '{' || c == '}' || c == '"').to_lowercase())
+        .unwrap_or_else(|| "".to_string())
+}
+
+// FIX: Removed unused markdown_key parameter
+fn create_anchor(author_part: &str, year_part: &str, suffix_part: &str) -> String {
+    let base = format!("{}{}", author_part, year_part).to_lowercase();
+    if suffix_part.is_empty() || suffix_part == "a" {
+        base
+    } else {
+        format!("{}{}", base, suffix_part)
+    }
+}
+
+fn format_bib_entry_for_markdown(entry: &Bibliography) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let tags = entry.tags();
+    let find_tag = |key: &str| -> Option<String> { tags.iter().find(|(k, _v)| k.eq_ignore_ascii_case(key)).map(|(_k, v)| v.clone()) };
+    if let Some(author) = find_tag("author") { parts.push(author.replace(" and ", ", ")); } else { parts.push("Unknown Author".to_string()); }
+    if let Some(year) = find_tag("year") { parts.push(format!("({})", year)); } else { parts.push("(N.D.)".to_string()); }
+    if let Some(title) = find_tag("title") { let clean_title = title.trim_matches(|c| c == '{' || c == '}' || c == '"'); parts.push(format!("*{}.*", clean_title)); } else { parts.push("*No Title*.".to_string()); }
+    let mut source = String::new();
+    if let Some(journal) = find_tag("journal") { source.push_str(&format!(" *{}*", journal.trim_matches(|c| c == '{' || c == '}' || c == '"'))); if let Some(volume) = find_tag("volume") { source.push_str(&format!(", {}", volume)); } if let Some(pages) = find_tag("pages") { source.push_str(&format!(", pp. {}", pages.replace("--", "-"))); } source.push('.'); } else if let Some(booktitle) = find_tag("booktitle") { source.push_str(&format!(" In *{}*.", booktitle.trim_matches(|c| c == '{' || c == '}' || c == '"'))); } else if let Some(howpublished) = find_tag("howpublished") { source.push_str(&format!(" {}.", howpublished)); }
+    parts.push(source);
+    parts.iter().filter(|s| !s.is_empty() && *s != ".").cloned().collect::<Vec<_>>().join(" ")
+}
+
+// --- Main WASM Function ---
+
+#[wasm_bindgen]
+#[derive(serde::Serialize, Debug)]
+pub struct ProcessingOutput {
+    modified_markdown: String,
+    bibliography_markdown: String,
+}
+
+#[wasm_bindgen]
+impl ProcessingOutput {
+    #[wasm_bindgen(getter)] pub fn modified_markdown(&self) -> String { self.modified_markdown.clone() }
+    #[wasm_bindgen(getter)] pub fn bibliography_markdown(&self) -> String { self.bibliography_markdown.clone() }
+}
+
+#[wasm_bindgen]
+pub fn process_markdown_and_bibtex(
+    markdown_input: &str,
+    bibtex_input: &str,
+    bibliography_output_filename: &str,
+) -> Result<ProcessingOutput, JsValue> {
+
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let citation_regex = Regex::new(r"(@([a-zA-Z]+)(\d{2})([a-z]?))\b")
+        .map_err(|e| JsValue::from_str(&format!("Regex error: {}", e)))?;
+
+    let mut unique_citations: HashMap<String, (String, String, String)> = HashMap::new();
+    for cap in citation_regex.captures_iter(markdown_input) {
+        let full_match = cap.get(1).map_or("", |m| m.as_str()).to_string();
+        let author_part = cap.get(2).map_or("", |m| m.as_str()).to_string();
+        let year_part = cap.get(3).map_or("", |m| m.as_str()).to_string();
+        let suffix_part = cap.get(4).map_or("", |m| m.as_str()).to_string();
+        if !full_match.is_empty() {
+             unique_citations.entry(full_match).or_insert((author_part, year_part, suffix_part));
+        }
+    }
+    log!("Found {} unique citation keys.", unique_citations.len());
+
+    let bibtex_data = Bibtex::parse(bibtex_input)
+        .map_err(|e| JsValue::from_str(&format!("BibTeX parsing error: {:?}", e)))?;
+    let all_bib_entries = bibtex_data.bibliographies();
+    log!("Parsed {} BibTeX entries.", all_bib_entries.len());
+
+    let mut grouped_entries: HashMap<(String, String), Vec<&Bibliography>> = HashMap::new();
+    for entry in all_bib_entries {
+        if let (Some(author_str), Some(year_str)) = (entry.tags().iter().find(|(k,_)| k.eq_ignore_ascii_case("author")).map(|(_,v)| v),
+                                                    entry.tags().iter().find(|(k,_)| k.eq_ignore_ascii_case("year")).map(|(_,v)| v)) {
+            if let (Some(first_last_name_lc), Some(year_yy)) = (get_first_author_last_name(author_str), get_year_yy(year_str)) {
+                 grouped_entries.entry((first_last_name_lc, year_yy)).or_default().push(entry);
+            }
+        }
+    }
+
+    for group in grouped_entries.values_mut() {
+        group.sort_by(|a, b| get_entry_title_for_sort(a).cmp(&get_entry_title_for_sort(b)));
+    }
+
+    let mut final_entry_map: HashMap<String, &Bibliography> = HashMap::new();
+    let mut missing_keys: HashSet<String> = unique_citations.keys().cloned().collect();
+
+    for (md_key, (author_part, year_part, suffix_part)) in &unique_citations {
+        let lookup_key = (author_part.to_lowercase(), year_part.clone());
+        if let Some(candidate_group) = grouped_entries.get(&lookup_key) {
+            let index = suffix_to_index(suffix_part);
+            if let Some(selected_entry) = candidate_group.get(index) {
+                final_entry_map.insert(md_key.clone(), selected_entry);
+                missing_keys.remove(md_key);
+                log!("Mapped key '{}' to entry.", md_key);
+            } else {
+                log!("Warning: Suffix '{}' for key '{}' is out of bounds.", suffix_part, md_key);
+            }
+        } else {
+             log!("Warning: No entries found for Author='{}', YearYY='{}'.", author_part, year_part);
+        }
+    }
+
+    let mut bibliography_markdown_lines: Vec<String> = Vec::new();
+    bibliography_markdown_lines.push("# Bibliography".to_string());
+    bibliography_markdown_lines.push("".to_string());
+
+    let mut sorted_mapped_keys: Vec<String> = final_entry_map.keys().cloned().collect();
+    sorted_mapped_keys.sort_by(|a, b| {
+        let (author_a, year_a, suffix_a) = unique_citations.get(a).unwrap();
+        let (author_b, year_b, suffix_b) = unique_citations.get(b).unwrap();
+        author_a.to_lowercase().cmp(&author_b.to_lowercase())
+            .then_with(|| year_a.cmp(year_b))
+            .then_with(|| suffix_to_index(suffix_a).cmp(&suffix_to_index(suffix_b)))
+    });
+
+    for md_key in &sorted_mapped_keys {
+         if let Some(entry) = final_entry_map.get(md_key) {
+            let formatted_entry = format_bib_entry_for_markdown(entry);
+            let (author_part, year_part, suffix_part) = unique_citations.get(md_key).unwrap();
+            // FIX: Call create_anchor without md_key
+            let anchor = create_anchor(author_part, year_part, suffix_part);
+
+            let heading = format!("## <a name=\"{}\"></a>{}", anchor, formatted_entry);
+            bibliography_markdown_lines.push(heading);
+            bibliography_markdown_lines.push("".to_string());
+         }
+    }
+
+    if final_entry_map.is_empty() {
+        if !missing_keys.is_empty() { bibliography_markdown_lines.push("*(No BibTeX entries found matching any citation keys)*".to_string()); }
+        else { bibliography_markdown_lines.push("*(No citation keys found in Markdown input)*".to_string()); }
+    }
+
+    let bibliography_content = bibliography_markdown_lines.join("\n");
+
+    let modified_markdown_content = citation_regex.replace_all(markdown_input, |caps: &Captures| {
+        let full_match = caps.get(1).map_or("", |m| m.as_str());
+
+        if final_entry_map.contains_key(full_match) {
+             let author_part = caps.get(2).map_or("", |m| m.as_str());
+             let year_part = caps.get(3).map_or("", |m| m.as_str());
+             let suffix_part = caps.get(4).map_or("", |m| m.as_str());
+
+             // FIX: Call create_anchor without full_match
+             let anchor = create_anchor(author_part, year_part, suffix_part);
+
+             let link_text = if suffix_part.is_empty() || suffix_part == "a" {
+                 format!("{}{}", author_part, year_part)
+             } else {
+                 format!("{}{}{}", author_part, year_part, suffix_part)
+             };
+
+             format!("[{}]({}#{})", link_text, bibliography_output_filename, anchor)
+        } else {
+            if !missing_keys.contains(full_match){ log!("Warning: Unmapped key '{}' found.", full_match); }
+            format!("{} [Reference Not Found]", full_match)
+        }
+    }).to_string();
+
+    log!("Markdown processing complete.");
+
+    Ok(ProcessingOutput {
+        modified_markdown: modified_markdown_content,
+        bibliography_markdown: bibliography_content,
+    })
+}
+
+    
+

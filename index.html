@@ -1,0 +1,86 @@
+      
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown BibTeX Processor (WASM)</title>
+    <style>
+        body { font-family: sans-serif; display: flex; gap: 20px; padding: 15px; }
+        textarea { width: 45%; height: 400px; font-family: monospace; }
+        pre { white-space: pre-wrap; word-wrap: break-word; border: 1px solid #ccc; padding: 10px; background-color: #f8f8f8; }
+        #output-area { width: 100%; }
+        button { padding: 10px 15px; cursor: pointer; }
+        #controls div { margin-bottom: 10px; }
+        label { margin-right: 5px; display: inline-block; min-width: 100px;}
+        input[type="text"] { padding: 5px; min-width: 250px;}
+    </style>
+</head>
+<body>
+    <div>
+        <h3>Input Markdown</h3>
+        <textarea id="markdown-input">
+This cites @Solovay12 and maybe @Smith20.
+What about @Smith20b? Or an unknown like @NonExistent99.
+Let's cite the first Smith again @Smith20a.
+Also try fuzzy matching for @Smyth20 or @Solevay12.
+</textarea> <!-- Added fuzzy examples -->
+    </div>
+    <div>
+        <h3>Input BibTeX</h3>
+        <textarea id="bibtex-input">
+@Article{Solovay12Key,
+  author  = {Robert M. Solovay and R. D. Arthan and John Harrison},
+  title   = {Some new results on decidability for elementary algebra and geometry},
+  journal = {Annals of Pure and Applied Logic},
+  year    = {2012}, volume = {163}, number = {12}, pages = {1765--1802}
+}
+
+@Misc{Smith20KeyA,
+    author = {J. Smith},
+    title = {A Fictional Work},
+    year = {2020}, howpublished = {Online Blog Post},
+}
+
+@Misc{Smith20KeyB,
+    author = {Smith, Jane},
+    title = {Bravo - Another Fictional Work},
+    year = {2020}, howpublished = {Conference Proceeding},
+}
+
+@Misc{Smyth20KeyC, <!-- Fuzzy Target -->
+    author = {Smyth, Jimmy},
+    title = {Charlie - Yet Another Fictional Work},
+    year = {2020}, howpublished = {Preprint},
+}
+
+
+@Misc{UnusedEntry05,
+    author = {Jane Doe},
+    title = {An Unrelated Paper},
+    year = {2005}
+}
+        </textarea> <!-- Added fuzzy target -->
+    </div>
+    <div id="controls">
+         <!-- MODIFICATION 1: Change input to Link Prefix -->
+         <div>
+            <label for="bib-link-prefix">Link Prefix:</label>
+            <input type="text" id="bib-link-prefix" placeholder="e.g., ../refs/ or empty">
+            <span>(Path before bibliography.md#...)</span>
+         </div>
+         <!-- End Modification 1 -->
+         <button id="process-button">Process Citations</button>
+         <div id="output-area">
+            <h3>Processed Markdown</h3>
+            <pre id="output-markdown">...</pre>
+            <h3>Generated Bibliography (bibliography.md)</h3> <!-- Filename is now fixed -->
+            <pre id="output-bibliography">...</pre>
+         </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
+
+    

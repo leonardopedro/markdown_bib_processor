@@ -1,0 +1,76 @@
+      
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown BibTeX Processor (WASM)</title>
+    <style>
+        /* ... (keep existing styles) ... */
+        #controls div { margin-bottom: 10px; }
+        label { margin-right: 5px; }
+        input[type="text"] { padding: 5px; min-width: 200px;}
+    </style>
+</head>
+<body>
+    <div>
+        <h3>Input Markdown</h3>
+        <textarea id="markdown-input">
+This cites @Solovay12 and maybe @Smith20.
+What about @Smith20b? Or an unknown like @NonExistent99.
+Let's cite the first Smith again @Smith20a.
+        </textarea> <!-- Added Smith20a for testing -->
+    </div>
+    <div>
+        <h3>Input BibTeX</h3>
+        <textarea id="bibtex-input">
+@Article{Solovay12Key, <!-- Note: BibTeX key doesn't matter now -->
+  author  = {Robert M. Solovay and R. D. Arthan and John Harrison},
+  title   = {Some new results on decidability for elementary algebra and geometry},
+  journal = {Annals of Pure and Applied Logic},
+  year    = {2012},
+  volume  = {163}, number = {12}, pages = {1765--1802}, month = {December}
+}
+
+@Misc{Smith20KeyA,
+    author = {J. Smith},
+    title = {A Fictional Work},
+    year = {2020},
+    howpublished = {Online Blog Post},
+}
+
+@Misc{Smith20KeyB,
+    author = {Smith, Jane}, <!-- Different format, first author is Jane Smith -->
+    title = {Bravo - Another Fictional Work}, <!-- Title starts with B -->
+    year = {2020},
+    howpublished = {Conference Proceeding},
+}
+
+@Misc{UnusedEntry05,
+    author = {Jane Doe},
+    title = {An Unrelated Paper},
+    year = {2005}
+}
+        </textarea> <!-- Added another Smith20 entry -->
+    </div>
+    <div id="controls">
+         <!-- MODIFICATION 2: Add input for filename -->
+         <div>
+            <label for="bib-filename">Bibliography Filename:</label>
+            <input type="text" id="bib-filename" placeholder="bibliography.md">
+         </div>
+         <!-- End Modification 2 -->
+         <button id="process-button">Process Citations</button>
+         <div id="output-area">
+            <h3>Processed Markdown</h3>
+            <pre id="output-markdown">...</pre>
+            <h3>Generated Bibliography (filename below)</h3>
+            <pre id="output-bibliography">...</pre>
+         </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
+
+    
