@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 wasm-bindgen = "0.2"
 regex = "1"
 nom-bibtex = "0.4"
+hayagriva = "0.8.1" # Check for latest version
 serde = { version = "1.0", features = ["derive"] }
 # Correctly enable the 'console' feature for web-sys
 web-sys = { version = "0.3", features = ["console"] }

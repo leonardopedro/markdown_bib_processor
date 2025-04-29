@@ -1,0 +1,222 @@
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::JsValue;
+use regex::{Regex, Captures}; // Use regex::Captures for closure
+
+// Corrected Hayagriva Imports for v0.9+
+use hayagriva::io::bibtex; // Module for bibtex parsing
+use hayagriva::style::{CitationItem, Locator}; // Moved under style
+use hayagriva::types::{Entry, Date, PersonName, Person}; // Core types needed
+use hayagriva::{BibliographyStyle, Library}; // Style and Library are top-level
+
+use std::collections::{HashMap, HashSet};
+
+#[cfg(feature = "console_error_panic_hook")]
+extern crate console_error_panic_hook;
+
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+        #[cfg(not(target_arch = "wasm32"))]
+        println!( $( $t )* );
+    }
+}
+
+// --- Constants ---
+const BIB_OUTPUT_FILENAME: &str = "bibliography.md"; // Fixed output filename
+
+// --- Helper Functions ---
+
+// Simplified anchor creation from BibTeX key
+fn create_anchor(bib_key: &str) -> String {
+    bib_key
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect()
+}
+
+// Helper to get Author/Year for sorting Bibliography entries
+fn get_entry_sort_key(entry: &Entry) -> (String, i32) {
+    // Get first author's family name (lowercase)
+    let author_sort = entry.authors().map_or_else(String::new, |authors| {
+        authors.get(0).map_or_else(String::new, |author: &Person| { // Explicit type Person
+            author.name.as_ref().map_or_else(String::new, |name: &PersonName| { // Explicit type PersonName
+                name.family.to_lowercase()
+            })
+        })
+    });
+
+    // Get year as i32 for proper sorting
+    let year_sort = entry.date().map_or(0, |date: &Date| { // Explicit type Date
+        date.year // Access the year field directly
+    });
+
+    (author_sort, year_sort)
+}
+
+// format_bib_entry_for_markdown is no longer needed, Hayagriva handles formatting
+
+// --- Main WASM Function ---
+
+#[wasm_bindgen]
+#[derive(serde::Serialize, Debug)]
+pub struct ProcessingOutput {
+    modified_markdown: String,
+    bibliography_markdown: String,
+}
+
+#[wasm_bindgen]
+impl ProcessingOutput {
+    #[wasm_bindgen(getter)] pub fn modified_markdown(&self) -> String { self.modified_markdown.clone() }
+    #[wasm_bindgen(getter)] pub fn bibliography_markdown(&self) -> String { self.bibliography_markdown.clone() }
+}
+
+#[wasm_bindgen]
+pub fn process_markdown_and_bibtex(
+    markdown_input: &str,
+    bibtex_input: &str,
+    csl_style_input: &str,
+    bibliography_link_prefix: &str,
+) -> Result<ProcessingOutput, JsValue> {
+
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    // --- 1. Define Regex & Find Unique Cited Keys ---
+    let citation_regex = Regex::new(r"@([a-zA-Z0-9_:-]+)")
+        .map_err(|e| JsValue::from_str(&format!("Regex error: {}", e)))?;
+
+    let mut cited_keys: HashSet<String> = HashSet::new();
+    for cap in citation_regex.captures_iter(markdown_input) {
+        if let Some(key_match) = cap.get(1) {
+             cited_keys.insert(key_match.as_str().to_string());
+        }
+    }
+    log!("Found {} unique citation keys in markdown.", cited_keys.len());
+    if cited_keys.is_empty() {
+        log!("No citation keys found.");
+         return Ok(ProcessingOutput {
+             modified_markdown: markdown_input.to_string(),
+             bibliography_markdown: "# Bibliography\n\n*(No citations found in input)*".to_string(),
+         });
+    }
+
+    // --- 2. Parse BibTeX using Hayagriva ---
+    let mut library = Library::new();
+    // FIX: Use correct parsing function path
+    let parse_result = bibtex::from_str(bibtex_input);
+
+    match parse_result {
+         Ok(parsed_entries) => {
+             for entry in parsed_entries {
+                 library.push(entry);
+             }
+             log!("Parsed {} BibTeX entries successfully.", library.len());
+         }
+         Err(e) => {
+             let error_msg = format!("BibTeX parsing error: {:?}", e);
+             log!("{}", error_msg);
+             return Err(JsValue::from_str(&error_msg));
+         }
+     }
+
+    // --- 3. Load CSL Style ---
+    // FIX: BibliographyStyle is top-level
+    let style = BibliographyStyle::from_xml(csl_style_input) // Use from_xml for CSL content
+        .map_err(|e| {
+            // Extracting specific CSL error might require more complex handling
+            let error_msg = format!("CSL parsing error: {:?}", e);
+            log!("{}", error_msg);
+            JsValue::from_str(&error_msg)
+        })?;
+    log!("CSL style loaded successfully.");
+
+    // --- 4. Filter Library & Prepare Entries for Bibliography ---
+    let mut entries_to_render: Vec<&Entry> = Vec::new();
+    let mut missing_keys: HashSet<String> = cited_keys.clone();
+
+    for cited_key in &cited_keys {
+         let mut found = false;
+         // TODO: Hayagriva library lookup is inefficient this way.
+         // For larger libraries, consider building an index/HashMap beforehand.
+         for entry in library.iter() {
+             if entry.key() == cited_key {
+                 entries_to_render.push(entry); // Push reference &Entry
+                 missing_keys.remove(cited_key);
+                 found = true;
+                 break;
+             }
+         }
+         if !found {
+            log!("Warning: Cited key '{}' not found in BibTeX library.", cited_key);
+         }
+    }
+
+    // Sort the entries for the bibliography (e.g., by Author, Year)
+    entries_to_render.sort_by(|a, b| {
+        get_entry_sort_key(a).cmp(&get_entry_sort_key(b))
+    });
+
+    // --- 5. Generate Bibliography Markdown ---
+    let mut bibliography_markdown_lines: Vec<String> = Vec::new();
+    bibliography_markdown_lines.push("# Bibliography".to_string());
+    bibliography_markdown_lines.push("".to_string());
+
+    if entries_to_render.is_empty() {
+        if !missing_keys.is_empty() { bibliography_markdown_lines.push("*(No BibTeX entries found matching any citation keys)*".to_string()); }
+        else { bibliography_markdown_lines.push("*(No valid citation keys found or matched)*".to_string()); }
+    } else {
+        for entry_ref in &entries_to_render { // Iterate over references: &&Entry
+            let entry = *entry_ref; // Dereference once to get &Entry
+
+            // FIX: Use entry.bibliography_markup(&style, None)
+            match entry.bibliography_markup(&style, None) { // Call on &Entry
+                 Ok(formatted_markup) => {
+                     // Basic conversion to String - doesn't handle formatting like italics well
+                     let formatted_string = formatted_markup.display_string_plain(); // Use plain display
+
+                     let anchor = create_anchor(entry.key());
+                     let heading = format!("## <a name=\"{}\"></a>{}", anchor, formatted_string);
+                     bibliography_markdown_lines.push(heading);
+                     bibliography_markdown_lines.push("".to_string());
+                 }
+                 Err(e) => {
+                     log!("Error formatting bibliography entry for key '{}': {:?}", entry.key(), e);
+                     let anchor = create_anchor(entry.key());
+                     let heading = format!("## <a name=\"{}\"></a>[Error formatting entry: {}]", anchor, entry.key());
+                     bibliography_markdown_lines.push(heading);
+                     bibliography_markdown_lines.push("".to_string());
+                 }
+            }
+        }
+    }
+    let bibliography_content = bibliography_markdown_lines.join("\n");
+
+
+    // --- 6. Replace citations in Markdown ---
+    // FIX: Correct the closure signature to use ®ex::Captures
+    let modified_markdown_content = citation_regex.replace_all(markdown_input, |caps: &Captures| {
+        let key = caps.get(1).map_or("", |m| m.as_str());
+
+        if !missing_keys.contains(key) {
+             let anchor = create_anchor(key);
+             let link_text = key;
+
+             format!("[{}]({}{}#{})", link_text, bibliography_link_prefix, BIB_OUTPUT_FILENAME, anchor)
+        } else {
+            log!("Warning: Replacing missing key marker for '{}'.", key);
+            format!("@[{}] [BibTeX Key Not Found]", key)
+        }
+    }).to_string();
+
+
+    log!("Markdown processing complete.");
+
+    Ok(ProcessingOutput {
+        modified_markdown: modified_markdown_content,
+        bibliography_markdown: bibliography_content,
+    })
+}
+
+    
