@@ -22,6 +22,7 @@ async function run() {
     const outputMarkdown = document.getElementById('output-markdown');
     const outputBibliography = document.getElementById('output-bibliography');
     const bibLinkPrefixInput = document.getElementById('bib-link-prefix');
+    const citationStyleSelect = document.getElementById('citation-style-select'); // Added
 
     // Check if elements were found
     if (!processButton) { console.error("Could not find button #process-button"); return; }
@@ -30,6 +31,7 @@ async function run() {
     if (!outputMarkdown) { console.error("Could not find pre #output-markdown"); return; }
     if (!outputBibliography) { console.error("Could not find pre #output-bibliography"); return; }
     if (!bibLinkPrefixInput) { console.error("Could not find input #bib-link-prefix"); return; }
+    if (!citationStyleSelect) { console.error("Could not find select #citation-style-select"); return; } // Added
 
     console.log("All elements found. Adding event listener...");
 
@@ -40,7 +42,8 @@ async function run() {
         const mdText = markdownInput.value;
         const bibText = bibtexInput.value;
         const bibliographyLinkPrefix = bibLinkPrefixInput.value;
-        console.log("Read inputs. Link prefix:", bibliographyLinkPrefix); // Log prefix value
+        const citationStyle = citationStyleSelect.value; // Added
+        console.log("Read inputs. Link prefix:", bibliographyLinkPrefix, "Citation Style:", citationStyle); // Log prefix and style
 
         outputMarkdown.textContent = 'Processing...';
         outputBibliography.textContent = 'Processing...';
@@ -51,7 +54,8 @@ async function run() {
             const result = process_markdown_and_bibtex(
                 mdText,
                 bibText,
-                bibliographyLinkPrefix
+                bibliographyLinkPrefix,
+                citationStyle // Added
             );
             console.log("WASM function returned."); // Check if it finishes
 
