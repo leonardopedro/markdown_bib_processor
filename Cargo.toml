@@ -9,14 +9,12 @@ crate-type = ["cdylib"]
 [dependencies]
 wasm-bindgen = "0.2"
 regex = "1"
-nom-bibtex = "0.4"
 hayagriva = "0.8.1" # Check for latest version
 serde = { version = "1.0", features = ["derive"] }
 # Correctly enable the 'console' feature for web-sys
 web-sys = { version = "0.3", features = ["console"] }
 linked-hash-map = "0.5"
 levenshtein = "1.0"
-hayagriva = "0.8.1" # Added hayagriva
 
 [dependencies.console_error_panic_hook]
 version = "0.1.7"
