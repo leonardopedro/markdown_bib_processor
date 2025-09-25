@@ -708,7 +708,6 @@ pub fn process_markdown_and_bibtex(
         }
     }).to_string();
 
-    let modified_markdown_content = parse_incomplete_markdown(&modified_markdown_contenttemp);
 
 
 
