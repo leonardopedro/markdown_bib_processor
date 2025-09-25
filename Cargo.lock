@@ -106,6 +106,7 @@ dependencies = [
  "levenshtein",
  "linked-hash-map",
  "nom-bibtex",
+ "once_cell",
  "regex",
  "serde",
  "wasm-bindgen",

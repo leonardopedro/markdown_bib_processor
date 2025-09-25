@@ -6,6 +6,419 @@ use std::collections::{HashMap, HashSet};
 // For fuzzy matching
 use levenshtein::levenshtein;
 
+use once_cell::sync::Lazy;
+
+// Statically compile regex patterns for performance.
+// `once_cell::sync::Lazy` ensures this is done only once, safely across threads.
+static LINK_IMAGE_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(!?\[)([^\]]*?)$").unwrap());
+static BOLD_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\*\*)([^*]*?)$").unwrap());
+static ITALIC_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(__)([^_]*?)$").unwrap());
+static BOLD_ITALIC_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(\*\*\*)([^*]*?)$").unwrap());
+static SINGLE_ASTERISK_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(\*)([^*]*?)$").unwrap());
+static SINGLE_UNDERSCORE_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(_)([^_]*?)$").unwrap());
+static INLINE_CODE_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(`)([^`]*?)$").unwrap());
+static STRIKETHROUGH_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(~~)([^~]*?)$").unwrap());
+
+// A regex to check for content that is only whitespace or other emphasis markers.
+static MEANINGLESS_CONTENT_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[\s_~*`]*$").unwrap());
+
+/// Helper function to check if we have a complete code block.
+fn has_complete_code_block(text: &str) -> bool {
+    let triple_backticks = text.matches("```").count();
+    triple_backticks > 0 && triple_backticks % 2 == 0 && text.contains('\n')
+}
+
+/// Handles incomplete links and images by preserving them with a special marker.
+fn handle_incomplete_links_and_images(text: &str) -> String {
+    if let Some(captures) = LINK_IMAGE_PATTERN.captures(text) {
+        let link_match = captures.get(0).unwrap();
+        let is_image = captures.get(1).unwrap().as_str().starts_with('!');
+
+        // For images, remove them as they can't show a skeleton UI.
+        if is_image {
+            return text[..link_match.start()].to_string();
+        }
+
+        // For links, preserve the text and close the link with a special placeholder.
+        return format!("{text}](streamdown:incomplete-link)");
+    }
+
+    text.to_string()
+}
+
+/// Completes incomplete bold formatting (**).
+fn handle_incomplete_bold(text: &str) -> String {
+    if has_complete_code_block(text) {
+        return text.to_string();
+    }
+
+    if let Some(captures) = BOLD_PATTERN.captures(text) {
+        let content_after_marker = captures.get(2).unwrap().as_str();
+        if content_after_marker.is_empty()
+            || MEANINGLESS_CONTENT_PATTERN.is_match(content_after_marker)
+        {
+            return text.to_string();
+        }
+
+        let asterisk_pairs = text.matches("**").count();
+        if asterisk_pairs % 2 == 1 {
+            return format!("{text}**");
+        }
+    }
+
+    text.to_string()
+}
+
+/// Completes incomplete italic formatting with double underscores (__).
+fn handle_incomplete_double_underscore_italic(text: &str) -> String {
+    if let Some(captures) = ITALIC_PATTERN.captures(text) {
+        let content_after_marker = captures.get(2).unwrap().as_str();
+        if content_after_marker.is_empty()
+            || MEANINGLESS_CONTENT_PATTERN.is_match(content_after_marker)
+        {
+            return text.to_string();
+        }
+
+        let underscore_pairs = text.matches("__").count();
+        if underscore_pairs % 2 == 1 {
+            return format!("{text}__");
+        }
+    }
+
+    text.to_string()
+}
+
+/// Counts single asterisks that are not part of double asterisks or list markers.
+fn count_single_asterisks(text: &str) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut count = 0;
+    for i in 0..chars.len() {
+        if chars[i] == '*' {
+            let prev_char = chars.get(i.wrapping_sub(1));
+            let next_char = chars.get(i + 1);
+
+            // Skip if part of ** or *** etc.
+            if (prev_char.map_or(false, |&c| c == '*'))
+                || (next_char.map_or(false, |&c| c == '*'))
+            {
+                continue;
+            }
+
+            // Skip if it's a list marker.
+            let line_start = text[..i].rfind('\n').map_or(0, |pos| pos + 1);
+            let before_asterisk = &text[line_start..i];
+            if before_asterisk.trim().is_empty() && next_char.map_or(false, |&c| c.is_whitespace())
+            {
+                continue;
+            }
+
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Completes incomplete italic formatting with single asterisks (*).
+fn handle_incomplete_single_asterisk_italic(text: &str) -> String {
+    if has_complete_code_block(text) {
+        return text.to_string();
+    }
+    
+    if let Some(captures) = SINGLE_ASTERISK_PATTERN.captures(text) {
+        let content_after_marker = captures.get(2).unwrap().as_str();
+        if content_after_marker.is_empty()
+            || MEANINGLESS_CONTENT_PATTERN.is_match(content_after_marker)
+        {
+            return text.to_string();
+        }
+
+        if count_single_asterisks(text) % 2 == 1 {
+            return format!("{text}*");
+        }
+    }
+    
+    text.to_string()
+}
+
+/// Checks if a character position is within a math block ($ or $$).
+fn is_within_math_block(text: &str, position: usize) -> bool {
+    let mut in_inline_math = false;
+    let mut in_block_math = false;
+    let mut chars = text.chars().enumerate().peekable();
+
+    while let Some((i, ch)) = chars.next() {
+        if i >= position {
+            break;
+        }
+        if ch == '\\' && chars.peek().map_or(false, |&(_, next_ch)| next_ch == '$') {
+            chars.next(); // Skip escaped dollar sign
+            continue;
+        }
+        if ch == '$' {
+            if chars.peek().map_or(false, |&(_, next_ch)| next_ch == '$') {
+                in_block_math = !in_block_math;
+                chars.next(); // Skip second dollar sign
+                in_inline_math = false;
+            } else if !in_block_math {
+                in_inline_math = !in_inline_math;
+            }
+        }
+    }
+
+    in_inline_math || in_block_math
+}
+
+
+/// Counts single underscores not part of double underscores or inside math blocks.
+fn count_single_underscores(text: &str) -> usize {
+    text.char_indices()
+        .filter(|&(i, ch)| {
+            if ch == '_' {
+                // Not part of __
+                let prev_char = text.chars().nth(i.saturating_sub(1));
+                let next_char = text.chars().nth(i + 1);
+                if prev_char == Some('_') || next_char == Some('_') {
+                    return false;
+                }
+                
+                // Not escaped
+                if prev_char == Some('\\') {
+                    return false;
+                }
+
+                // Not inside math block
+                if is_within_math_block(text, i) {
+                    return false;
+                }
+                
+                // Not word-internal
+                if let (Some(p), Some(n)) = (prev_char, next_char) {
+                    if (p.is_alphanumeric() || p == '_') && (n.is_alphanumeric() || n == '_') {
+                        return false;
+                    }
+                }
+                
+                return true;
+            }
+            false
+        })
+        .count()
+}
+
+/// Completes incomplete italic formatting with single underscores (_).
+fn handle_incomplete_single_underscore_italic(text: &str) -> String {
+    if has_complete_code_block(text) {
+        return text.to_string();
+    }
+
+    if let Some(captures) = SINGLE_UNDERSCORE_PATTERN.captures(text) {
+        let content_after_marker = captures.get(2).unwrap().as_str();
+        if content_after_marker.is_empty()
+            || MEANINGLESS_CONTENT_PATTERN.is_match(content_after_marker)
+        {
+            return text.to_string();
+        }
+
+        if count_single_underscores(text) % 2 == 1 {
+            return format!("{text}_");
+        }
+    }
+    
+    text.to_string()
+}
+
+/// Checks if a backtick is part of a triple-backtick sequence.
+fn is_part_of_triple_backtick(text: &str, i: usize) -> bool {
+    (text.len() >= i + 3 && &text[i..i + 3] == "```")
+        || (i > 0 && text.len() >= i + 2 && &text[i - 1..i + 2] == "```")
+        || (i > 1 && &text[i - 2..i + 1] == "```")
+}
+
+/// Counts single backticks that are not part of triple backticks.
+fn count_single_backticks(text: &str) -> usize {
+    text.char_indices()
+        .filter(|&(i, c)| c == '`' && !is_part_of_triple_backtick(text, i))
+        .count()
+}
+
+/// Completes incomplete inline code formatting (`).
+fn handle_incomplete_inline_code(text: &str) -> String {
+    let all_triple_backticks = text.matches("```").count();
+    let inside_incomplete_code_block = all_triple_backticks % 2 == 1;
+
+    if all_triple_backticks > 0 && all_triple_backticks % 2 == 0 && text.contains('\n') {
+        return text.to_string();
+    }
+
+    if let Some(_captures) = INLINE_CODE_PATTERN.captures(text) {
+        if !inside_incomplete_code_block && count_single_backticks(text) % 2 == 1 {
+            return format!("{text}`");
+        }
+    }
+
+    text.to_string()
+}
+
+/// Completes incomplete strikethrough formatting (~~).
+fn handle_incomplete_strikethrough(text: &str) -> String {
+    if let Some(captures) = STRIKETHROUGH_PATTERN.captures(text) {
+        let content_after_marker = captures.get(2).unwrap().as_str();
+        if content_after_marker.is_empty()
+            || MEANINGLESS_CONTENT_PATTERN.is_match(content_after_marker)
+        {
+            return text.to_string();
+        }
+
+        let tilde_pairs = text.matches("~~").count();
+        if tilde_pairs % 2 == 1 {
+            return format!("{text}~~");
+        }
+    }
+
+    text.to_string()
+}
+
+/// Completes incomplete block KaTeX formatting ($$).
+fn handle_incomplete_block_katex(text: &str) -> String {
+    let dollar_pairs = text.matches("$$").count();
+    if dollar_pairs % 2 == 1 {
+        if let Some(first_dollar_index) = text.find("$$") {
+            let has_newline_after_start = text[first_dollar_index..].contains('\n');
+            if has_newline_after_start && !text.ends_with('\n') {
+                return format!("{text}\n$$");
+            }
+        }
+        return format!("{text}$$");
+    }
+    text.to_string()
+}
+
+/// Completes incomplete bold-italic formatting (***).
+fn handle_incomplete_bold_italic(text: &str) -> String {
+    if has_complete_code_block(text) {
+        return text.to_string();
+    }
+    // This check prevents cases like **** from being treated as incomplete ***
+    if text.starts_with("****") {
+        return text.to_string();
+    }
+
+    if let Some(captures) = BOLD_ITALIC_PATTERN.captures(text) {
+        let content_after_marker = captures.get(2).unwrap().as_str();
+        if content_after_marker.is_empty()
+            || MEANINGLESS_CONTENT_PATTERN.is_match(content_after_marker)
+        {
+            return text.to_string();
+        }
+        
+        let triple_asterisk_count = text.matches("***").count();
+        if triple_asterisk_count % 2 == 1 {
+            return format!("{text}***");
+        }
+    }
+
+    text.to_string()
+}
+
+/// Parses markdown text and completes incomplete tokens to prevent partial rendering.
+pub fn parse_incomplete_markdown(text: &str) -> String {
+    if text.is_empty() {
+        return text.to_string();
+    }
+
+    // Handle incomplete links and images first.
+    let mut result = handle_incomplete_links_and_images(text);
+
+    // If a special incomplete link marker was added, don't process other formatting.
+    if result.ends_with("](streamdown:incomplete-link)") {
+        return result;
+    }
+    
+    // The order of operations is important to handle nested and combined formatting.
+    result = handle_incomplete_bold_italic(&result);
+    result = handle_incomplete_bold(&result);
+    result = handle_incomplete_double_underscore_italic(&result);
+    result = handle_incomplete_single_asterisk_italic(&result);
+    result = handle_incomplete_single_underscore_italic(&result);
+    result = handle_incomplete_inline_code(&result);
+    result = handle_incomplete_strikethrough(&result);
+    result = handle_incomplete_block_katex(&result);
+
+    result
+}
+
+// Unit tests to ensure the Rust implementation matches the TypeScript logic.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bold() {
+        assert_eq!(handle_incomplete_bold("hello **world"), "hello **world**");
+        assert_eq!(handle_incomplete_bold("hello **"), "hello **");
+        assert_eq!(handle_incomplete_bold("hello **world**"), "hello **world**");
+    }
+
+    #[test]
+    fn test_link_and_image() {
+        assert_eq!(
+            handle_incomplete_links_and_images("click [here"),
+            "click [here](streamdown:incomplete-link)"
+        );
+        assert_eq!(handle_incomplete_links_and_images("see ![alt"), "see ");
+    }
+    
+    #[test]
+    fn test_strikethrough() {
+        assert_eq!(handle_incomplete_strikethrough("~~strike"), "~~strike~~");
+        assert_eq!(handle_incomplete_strikethrough("~~strike~~"), "~~strike~~");
+    }
+
+    #[test]
+    fn test_inline_code() {
+        assert_eq!(handle_incomplete_inline_code("`code"), "`code`");
+        assert_eq!(handle_incomplete_inline_code("```rust\nfn main"), "```rust\nfn main");
+    }
+
+    #[test]
+    fn test_katex_block() {
+        assert_eq!(handle_incomplete_block_katex("$$math"), "$$math$$");
+        assert_eq!(handle_incomplete_block_katex("$$x = y\n"), "$$x = y\n$$");
+    }
+
+    #[test]
+    fn test_full_parse_flow() {
+        let input = "This is **bold and `code";
+        let expected = "This is **bold and `code`**";
+        assert_eq!(parse_incomplete_markdown(input), expected);
+    }
+    
+    #[test]
+    fn test_single_underscore_in_word() {
+        let input = "variable_name_is_long";
+        assert_eq!(parse_incomplete_markdown(input), input);
+    }
+
+    #[test]
+    fn test_single_underscore_as_italic() {
+        let input = "this is _italic";
+        let expected = "this is _italic_";
+        assert_eq!(parse_incomplete_markdown(input), expected);
+    }
+    
+    #[test]
+    fn test_no_change_on_complete_markdown() {
+        let input = "Here is some **valid** markdown with a [link](http://example.com) and `code`.";
+        assert_eq!(parse_incomplete_markdown(input), input);
+    }
+}
+
 
 #[cfg(feature = "console_error_panic_hook")]
 extern crate console_error_panic_hook;
@@ -271,7 +684,7 @@ pub fn process_markdown_and_bibtex(
 
 
     // --- 6. Replace citations in Markdown ---
-    let modified_markdown_content = citation_regex.replace_all(markdown_input, |caps: &Captures| {
+    let modified_markdown_contenttemp = citation_regex.replace_all(markdown_input, |caps: &Captures| {
         let full_match = caps.get(1).map_or("", |m| m.as_str()); // @AuthorYY[suffix]
 
         if final_entry_map.contains_key(full_match) {
@@ -294,6 +707,10 @@ pub fn process_markdown_and_bibtex(
             format!("{} [Reference Not Found]", full_match)
         }
     }).to_string();
+
+    let modified_markdown_content = parse_incomplete_markdown(&modified_markdown_contenttemp);
+
+
 
 
     log!("Markdown processing complete.");
