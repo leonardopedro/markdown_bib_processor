@@ -341,12 +341,14 @@ pub fn parse_incomplete_markdown(text: &str) -> String {
     }
     
     // The order of operations is important to handle nested and combined formatting.
+    
+    result = handle_incomplete_inline_code(&result);
     result = handle_incomplete_bold_italic(&result);
     result = handle_incomplete_bold(&result);
     result = handle_incomplete_double_underscore_italic(&result);
     result = handle_incomplete_single_asterisk_italic(&result);
     result = handle_incomplete_single_underscore_italic(&result);
-    result = handle_incomplete_inline_code(&result);
+    
     result = handle_incomplete_strikethrough(&result);
     result = handle_incomplete_block_katex(&result);
 
