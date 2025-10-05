@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WASM Module Test</title>
+    <style>
+        body { font-family: sans-serif; padding: 15px; }
+        #test-results { display: flex; flex-direction: column; gap: 15px; }
+        .test-case { border: 1px solid #ccc; padding: 10px; }
+        .test-case h3 { margin-top: 0; }
+        .test-case .result { font-weight: bold; }
+        .pass { color: green; }
+        .fail { color: red; }
+        pre { white-space: pre-wrap; word-wrap: break-word; border: 1px solid #eee; padding: 5px; background-color: #f8f8f8; }
+    </style>
+</head>
+<body>
+    <h1>WASM Module Test Suite</h1>
+    <div id="test-results"></div>
+    <script type="module" src="test.js"></script>
+</body>
+</html>
