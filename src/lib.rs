@@ -35,7 +35,7 @@ pub fn process_markdown_and_bibtex(
         if !full_match.is_empty() {
             unique_citations
                 .entry(full_match)
-                .or_insert((author_part, year_part, suffix_part));
+                .or_insert((author_part, year_part, if suffix_part==""{"a".to_string()} else {suffix_part}));
         }
     }
 
@@ -73,7 +73,7 @@ pub fn process_markdown_and_bibtex(
         if let Some(candidate_group) = grouped_entries.get(&lookup_key) {
             let index = suffix_to_index(suffix_part);
             if let Some(selected_entry) = candidate_group.get(index) {
-                final_entry_map.insert(md_key.clone(), selected_entry);
+                final_entry_map.insert(author_part.clone()+year_part+if suffix_part=="a"{""} else {suffix_part}, selected_entry);
                 missing_keys.remove(md_key);
                 found_match = true;
             }
@@ -101,7 +101,7 @@ pub fn process_markdown_and_bibtex(
             }
 
             if let Some((_dist, selected_entry)) = best_fuzzy_match {
-                final_entry_map.insert(md_key.clone(), selected_entry);
+                final_entry_map.insert(author_part.clone()+year_part+(if suffix_part=="a"{""} else {suffix_part}), selected_entry);
                 missing_keys.remove(md_key);
             }
         }
@@ -119,8 +119,8 @@ pub fn process_markdown_and_bibtex(
     bibliography_markdown_lines.push("".to_string());
 
     let mut used_bib_keys: HashSet<String> = HashSet::new();
-    let mut bibliography_items_to_render: Vec<&Entry> = Vec::new();
-
+    let mut bibliography_items_to_render: Vec<(&Entry,&String)> = Vec::new();
+    
     // Sort keys to ensure deterministic order
     let mut sorted_md_keys: Vec<&String> = final_entry_map.keys().collect();
     sorted_md_keys.sort();
@@ -128,30 +128,30 @@ pub fn process_markdown_and_bibtex(
     for md_key in sorted_md_keys {
         if let Some(entry) = final_entry_map.get(md_key) {
             if used_bib_keys.insert(entry.key().to_string()) {
-                bibliography_items_to_render.push(entry);
+                bibliography_items_to_render.push( (entry,md_key) ) ;
             }
         }
     }
 
     bibliography_items_to_render.sort_by(|a, b| {
-        let author_a = get_authors_string(a);
-        let author_b = get_authors_string(b);
-        let year_a = a.date().map(|d| d.year.to_string()).unwrap_or_default();
-        let year_b = b.date().map(|d| d.year.to_string()).unwrap_or_default();
+        let author_a = get_authors_string(a.0);
+        let author_b = get_authors_string(b.0);
+        let year_a = a.0.date().map(|d| d.year.to_string()).unwrap_or_default();
+        let year_b = b.0.date().map(|d| d.year.to_string()).unwrap_or_default();
 
         author_a
             .cmp(&author_b)
             .then_with(|| year_a.cmp(&year_b))
-            .then_with(|| get_entry_title_for_sort(a).cmp(&get_entry_title_for_sort(b)))
+            .then_with(|| get_entry_title_for_sort(a.0).cmp(&get_entry_title_for_sort(b.0)))
     });
 
-    for (i, entry) in bibliography_items_to_render.iter().enumerate() {
-        let formatted_entry = format_bib_entry_for_markdown(entry, &style, &locales);
+    for entry in bibliography_items_to_render.iter() {
+        let formatted_entry = format_bib_entry_for_markdown(entry.0, &style, &locales);
         let line = format!(
-            "{}.  <a name=\"{}\"></a>{}",
-            i + 1,
-            entry.key(),
-            formatted_entry
+            "#### {}<a href=\"#{}\" id=\"{}\"></a>",
+            formatted_entry,
+            entry.1,
+            entry.1
         );
         bibliography_markdown_lines.push(line);
     }
@@ -165,17 +165,20 @@ pub fn process_markdown_and_bibtex(
     // --- 6. Replace citations in Markdown ---
     let mut citation_indices: HashMap<String, usize> = HashMap::new();
     for (i, entry) in bibliography_items_to_render.iter().enumerate() {
-        citation_indices.insert(entry.key().to_string(), i + 1);
+        citation_indices.insert(entry.0.key().to_string(), i + 1);
     }
 
     let modified_markdown_content = citation_regex
         .replace_all(markdown_input, |caps: &Captures| {
-            let full_match = caps.get(1).map_or("", |m| m.as_str());
+           let full_match = caps.get(1).map_or("", |m| m.as_str()).to_string();
+           let author_part = caps.get(2).map_or("", |m| m.as_str()).to_string();
+           let year_part = caps.get(3).map_or("", |m| m.as_str()).to_string();
+           let suffix_part = caps.get(4).map_or("", |m| m.as_str()).to_string();
+           let anchor = author_part.clone()+&year_part+(if suffix_part=="a"{""} else {&suffix_part});
 
-            if let Some(entry) = final_entry_map.get(full_match) {
-                if let Some(index) = citation_indices.get(entry.key()) {
-                    let anchor = entry.key();
-                    let link = format!("[[{}]]({}#{})", index, bibliography_link_prefix, anchor);
+            if let Some(entry) = final_entry_map.get(&anchor) {
+                if let Some(_index) = citation_indices.get(entry.key()) {
+                    let link = format!("[[{}]]({}#{})", anchor, bibliography_link_prefix, anchor);
                     return link;
                 }
             }
