@@ -1,54 +1,58 @@
+use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
-use clap::Parser;
 
-mod lib;
+// Import the function from the library crate
+use markdown_bib_processor::process_markdown_and_bibtex;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Path to the input Markdown file
-    #[arg(short, long)]
-    markdown: PathBuf,
+    #[arg(long)]
+    markdown_path: PathBuf,
 
     /// Path to the input BibTeX file
-    #[arg(short, long)]
-    bibtex: PathBuf,
+    #[arg(long)]
+    bibtex_path: PathBuf,
 
-    /// Path to the output Markdown file for the modified content
-    #[arg(short, long)]
-    output: PathBuf,
+    /// Path to the CSL style file (e.g., chicago-author-date.csl)
+    #[arg(long)]
+    csl_path: PathBuf,
 
-    /// Path to the output Markdown file for the bibliography
-    #[arg(short = 'f', long)]
-    bib_output: PathBuf,
-
-    /// Prefix for bibliography links in the modified Markdown
-    #[arg(long, default_value = "bibliography.md")]
-    link_prefix: String,
+    /// Path to the CSL locale file (e.g., en-US.xml)
+    #[arg(long)]
+    locale_path: PathBuf,
 }
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    // Read input files
-    let markdown_input = fs::read_to_string(&args.markdown)?;
-    let bibtex_input = fs::read_to_string(&args.bibtex)?;
+    // Read the content from the files specified in the command-line arguments
+    let markdown_input = fs::read_to_string(args.markdown_path)?;
+    let bibtex_input = fs::read_to_string(args.bibtex_path)?;
+    let csl_input = fs::read_to_string(args.csl_path)?;
+    let locale_input = fs::read_to_string(args.locale_path)?;
 
-    // Process the files
-    match lib::process_markdown_and_bibtex(&markdown_input, &bibtex_input, &args.link_prefix) {
+    // Call the library function to process the inputs
+    match process_markdown_and_bibtex(
+        &markdown_input,
+        &bibtex_input,
+        "", // Using an empty string for the link prefix
+        &csl_input,
+        &locale_input,
+    ) {
         Ok(output) => {
-            // Write the modified markdown and bibliography to their respective files
-            fs::write(&args.output, output.modified_markdown())?;
-            fs::write(&args.bib_output, output.bibliography_markdown())?;
-
-            println!("Successfully processed files.");
-            println!("Modified Markdown written to: {:?}", &args.output);
-            println!("Bibliography written to: {:?}", &args.bib_output);
+            // Combine the processed markdown and the bibliography and print to console
+            let final_document = format!(
+                "{}\n\n{}",
+                output.modified_markdown, output.bibliography_markdown
+            );
+            println!("{}", final_document);
         }
         Err(e) => {
             eprintln!("Error processing files: {}", e);
-            // Convert the error to an io::Error to be returned
+            // Return an I/O error to terminate the process
             return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
         }
     }

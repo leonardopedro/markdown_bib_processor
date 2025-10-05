@@ -11,3 +11,4 @@ linked-hash-map = "0.5"
 levenshtein = "1.0"
 once_cell = "1.19.0"
 clap = { version = "4.0", features = ["derive"] }
+hayagriva = "0.9" # Check crates.io for the absolute latest version
