@@ -28,10 +28,11 @@ pub fn process_markdown_and_bibtex(
 
     let mut unique_citations: HashMap<String, (String, String, String)> = HashMap::new();
     for cap in citation_regex.captures_iter(markdown_input) {
-        let full_match = cap.get(1).map_or("", |m| m.as_str()).to_string();
         let author_part = cap.get(2).map_or("", |m| m.as_str()).to_string();
         let year_part = cap.get(3).map_or("", |m| m.as_str()).to_string();
         let suffix_part = cap.get(4).map_or("", |m| m.as_str()).to_string();
+        let full_match = author_part.clone()+&year_part+if suffix_part=="a"{""} else {&suffix_part};
+        
         if !full_match.is_empty() {
             unique_citations
                 .entry(full_match)
@@ -82,13 +83,11 @@ pub fn process_markdown_and_bibtex(
         // --- 4b. Try Fuzzy Match if Exact Failed ---
         if !found_match {
             const FUZZY_MATCH_THRESHOLD: usize = 2; // Stricter threshold
-            let mut best_fuzzy_match: Option<(usize, &Entry)> = None;
+            let mut best_fuzzy_match: Option<(usize, (&(String, String), &Vec<&Entry>))> = None;
 
-            for entry in &bib_entries {
-                if let Some(entry_year_yy) = get_year_yy(entry) {
-                    if entry_year_yy == *year_part {
-                        if let Some(entry_lastname_lc) = get_first_author_last_name(entry) {
-                            let distance = levenshtein(&md_author_lc, &entry_lastname_lc);
+            for entry in &grouped_entries {
+                    if entry.0.1== *year_part {
+                            let distance = levenshtein(&md_author_lc, &entry.0.0);
                             if distance <= FUZZY_MATCH_THRESHOLD
                                 && (best_fuzzy_match.is_none()
                                     || distance < best_fuzzy_match.as_ref().unwrap().0)
@@ -96,13 +95,14 @@ pub fn process_markdown_and_bibtex(
                                 best_fuzzy_match = Some((distance, entry));
                             }
                         }
-                    }
-                }
             }
-
+         
             if let Some((_dist, selected_entry)) = best_fuzzy_match {
-                final_entry_map.insert(author_part.clone()+year_part+(if suffix_part=="a"{""} else {suffix_part}), selected_entry);
-                missing_keys.remove(md_key);
+                let index = suffix_to_index(suffix_part);
+                if let Some(selected_entry2) = selected_entry.1.get(index) {
+                  final_entry_map.insert(author_part.clone()+year_part+(if suffix_part=="a"{""} else {suffix_part}), selected_entry2);
+                  missing_keys.remove(md_key);
+                }
             }
         }
     }
@@ -163,26 +163,26 @@ pub fn process_markdown_and_bibtex(
     };
 
     // --- 6. Replace citations in Markdown ---
-    let mut citation_indices: HashMap<String, usize> = HashMap::new();
+    let mut citation_indices: HashMap<String, (usize, String)> = HashMap::new();
     for (i, entry) in bibliography_items_to_render.iter().enumerate() {
-        citation_indices.insert(entry.0.key().to_string(), i + 1);
+        citation_indices.insert(entry.0.key().to_string(), (i + 1,entry.1.to_string()));
     }
 
     let modified_markdown_content = citation_regex
         .replace_all(markdown_input, |caps: &Captures| {
-           let full_match = caps.get(1).map_or("", |m| m.as_str()).to_string();
+           //let full_match = caps.get(1).map_or("", |m| m.as_str()).to_string();
            let author_part = caps.get(2).map_or("", |m| m.as_str()).to_string();
            let year_part = caps.get(3).map_or("", |m| m.as_str()).to_string();
            let suffix_part = caps.get(4).map_or("", |m| m.as_str()).to_string();
            let anchor = author_part.clone()+&year_part+(if suffix_part=="a"{""} else {&suffix_part});
 
             if let Some(entry) = final_entry_map.get(&anchor) {
-                if let Some(_index) = citation_indices.get(entry.key()) {
-                    let link = format!("[[{}]]({}#{})", anchor, bibliography_link_prefix, anchor);
+                if let Some((_index,anch)) = citation_indices.get(entry.key()) {
+                    let link = format!("[[{}]]({}#{})", anch, bibliography_link_prefix, anch);
                     return link;
                 }
             }
-            full_match.to_string()
+            ["@", &anchor].join("")
         })
         .to_string();
 
