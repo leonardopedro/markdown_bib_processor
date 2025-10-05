@@ -13,6 +13,7 @@
     # pkgs.nodePackages.nodemon
     pkgs.rustup
     pkgs.gcc
+    pkgs.wasmer
   ];
 
   # Sets environment variables in the workspace
