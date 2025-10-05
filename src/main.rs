@@ -1,3 +1,6 @@
+// cargo build --target=wasm32-wasip1
+// wasmer run markdown_bib_processor.wasm --mapdir /:. -- --markdown md.md     --bibtex bib.bib     --csl chicago.csl     --locale locales-en-US.xml
+
 use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
@@ -10,29 +13,29 @@ use markdown_bib_processor::process_markdown_and_bibtex;
 struct Args {
     /// Path to the input Markdown file
     #[arg(long)]
-    markdown_path: PathBuf,
+    markdown: PathBuf,
 
     /// Path to the input BibTeX file
     #[arg(long)]
-    bibtex_path: PathBuf,
+    bibtex: PathBuf,
 
     /// Path to the CSL style file (e.g., chicago-author-date.csl)
     #[arg(long)]
-    csl_path: PathBuf,
+    csl: PathBuf,
 
     /// Path to the CSL locale file (e.g., en-US.xml)
     #[arg(long)]
-    locale_path: PathBuf,
+    locale: PathBuf,
 }
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
     // Read the content from the files specified in the command-line arguments
-    let markdown_input = fs::read_to_string(args.markdown_path)?;
-    let bibtex_input = fs::read_to_string(args.bibtex_path)?;
-    let csl_input = fs::read_to_string(args.csl_path)?;
-    let locale_input = fs::read_to_string(args.locale_path)?;
+    let markdown_input = fs::read_to_string(args.markdown)?;
+    let bibtex_input = fs::read_to_string(args.bibtex)?;
+    let csl_input = fs::read_to_string(args.csl)?;
+    let locale_input = fs::read_to_string(args.locale)?;
 
     // Call the library function to process the inputs
     match process_markdown_and_bibtex(
