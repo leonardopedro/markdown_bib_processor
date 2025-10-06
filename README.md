@@ -4,7 +4,8 @@ This is a command-line tool for processing Markdown files and BibTeX bibliograph
 
 ## How it works
 
-The tool takes a Markdown file, a BibTeX file, a CSL (Citation Style Language) file, and a locale file as input. It parses the Markdown file to find citation keys in the format `[@key]`. It then uses the BibTeX file to find the corresponding bibliographic entries. Finally, it formats the bibliography according to the CSL style and appends it to the Markdown file.
+The tool takes a Markdown file, a BibTeX file, a CSL (Citation Style Language) file, and a locale file as input. It parses the Markdown file to find citation keys in the format `[@LastnamefirstauthorLasttwodigitsofyearOptionalletterfromatoz]`. The last letter is optional (no letter same as 'a'), with the order determined by the year and then the alphabetic order of the titles corresponding to the same Lastnamefirstauthor (exact name without approximations) and Lasttwodigitsofyear.
+The author's last name only needs to be approximately correct (useful for dealing with foreign characters)  It then uses the BibTeX file to find the corresponding bibliographic entries. Finally, it formats the bibliography according to the CSL style and appends it to the Markdown file.
 
 ## Usage
 
