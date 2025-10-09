@@ -1,3 +1,5 @@
+[<img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" />](https://deepwiki.com/leonardopedro/markdown_bib_processor)
+
 # Markdown Bibliography Processor
 
 This is a command-line tool for processing Markdown files and BibTeX bibliographies. It corrects the Markdown (based on Streamdown.ai) which is useful for collaboration through loro.dev or with AI, it finds citation keys in the Markdown file, and appends a formatted bibliography at the end.
